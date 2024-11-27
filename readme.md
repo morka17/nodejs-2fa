@@ -36,7 +36,7 @@ npm install flare_auth
 
 Import and use FlareAuth in your Node.js application:
 
-```bash
+```js
 import FlareAuth from 'flareauth';
 
 const auth = new FlareAuth();
@@ -48,7 +48,7 @@ const auth = new FlareAuth();
 ### User Management
 
 Create a New User
-```bash  
+```js 
 auth.CreateNewUser({ user: { name: 'John Doe', email: 'john@example.com' } });
 ```
 
@@ -56,23 +56,23 @@ auth.CreateNewUser({ user: { name: 'John Doe', email: 'john@example.com' } });
 
 Signup with Email and Password
 
-```bash  
+```js  
 auth.SignupWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
 ```
 Signup with Phone and Password
 
-```bash  
+```js 
 auth.SignupWithPhoneNumberAndPassword({ phone: '+1234567890', password: 'securepassword123' });
 ```
 
 ## Login Methods
 
 Login with Email and Password
-```bash  
+```js 
 auth.SignInWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
 ```
 Login with Phone and Password
-```bash  
+```js 
 auth.SignInWithPhoneNumberAndPassword({ phone: '+1234567890', password: 'securepassword123' });
 ```
 
@@ -80,50 +80,50 @@ auth.SignInWithPhoneNumberAndPassword({ phone: '+1234567890', password: 'securep
 ## Two-Factor Authentication (2FA)
 
 Start 2FA Authentication
-```bash  
+```js 
 const options = { method: 'sms', phone: '+1234567890' }; // Example
 auth.MultiAuthSignIn(options);
 ```
 Verify 2FA Token
 
-```bash  
+```js 
 auth.MultiAuthSignInVerification('token-from-sms-or-app');
 ```
 
 ## Provider Authentication
 
 Sign in with External Provider
-```bash  
+```js  
 auth.SignWithAuthProvider({ provider: 'google' });
 ```
 
 ## Email Verification
 
 Send Email Verification Link
-```bash  
+```js  
 auth.SendEmailVerificationLink('user-id');
 ```
 Verify Email Link
-```bash  
+```js  
 auth.VerifyEmailVerificationLink('token-from-email');
 ```
 
 ## Password Reset
 
 Send Password Reset Link
-```bash  
+```js  
 auth.SendPasswordResetLink('user-id');
 ```
 Verify Password Reset Token
-```bash  
+```js  
 auth.VerifyPasswordResetLink('reset-token');
 ```
 Set New Password
-```bash  
+```js  
 auth.setNewPassword({ resetToken: 'reset-token', setNewPassword: 'newPassword123' });
 ```
 Change Password
-```bash  
+```js 
 auth.changePassword({ uid: 'user-id', oldPassword: 'oldPassword123', newPassword: 'newPassword123' });
 ```
 
