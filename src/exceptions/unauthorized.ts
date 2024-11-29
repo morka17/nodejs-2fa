@@ -9,3 +9,14 @@ class UnauthorizedException extends Exception {
 }
 
 
+
+class NotFoundException extends Exception {
+    constructor(message: string) {
+        super(message, 404);
+    }
+
+    format(): string {
+        return `NotFoundException [${this.code}]: ${this.message}`;
+    }
+}
+

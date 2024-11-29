@@ -1,4 +1,7 @@
+
+
 import jwt, { SignOptions } from 'jsonwebtoken';
+import { Err, Ok, Result } from '../helper-func/result';
 
 export class JWTServices {
     private secret: string;
@@ -25,12 +28,15 @@ export class JWTServices {
      * @param token - The JWT string to verify
      * @returns The decoded payload if the token is valid
      */
-    verifyToken<T>(token: string): T | null {
+    verifyToken<T>(token: string): Result<T, Exception> {
         try {
-            return jwt.verify(token, this.secret) as T;
-        } catch (error) {
-            console.error('Token verification failed:', error);
-            return null;
+            return new Ok(jwt.verify(token, this.secret) as T);
+        } catch (error: any) {
+            const mesg = 'Token verification failed:' + error.message
+            console.error(mesg);
+
+            return new Err(new UnauthorizedException("Token Failed"))
+
         }
     }
 
@@ -46,6 +52,17 @@ export class JWTServices {
             console.error('Token decoding failed:', error);
             return null;
         }
+    }
+
+      /**
+     * Sign the verification code with HMAC for integrity and authenticity
+     * @param code - The verification code to sign
+     * @returns The signed hash of the code
+     */
+      signCode(code: string): string {
+        const hmac = crypto.createHmac('sha256', this.secret);
+        hmac.update(code);
+        return hmac.digest('hex');
     }
 }
 

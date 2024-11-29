@@ -13,9 +13,51 @@ datasource db {
   url      = env("file:./db.db")
 }
 
+model UserMetaData {
+  id Int @id @default(autoincrement())
+  user User? @relation(fields: [userId], references: [id])
+  userId Int @unique
+  lastIpAddress String
+  lastUserAgent String
+  lastLogin     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model User {
-  id       Int     @id @default(autoincrement())
-  email    String  @unique
-  phone    String? @unique
-  password String
+  id         Int     @id @default(autoincrement())
+  email      String  @unique
+  phone      String? @unique
+  isVerified Boolean @default(false)
+  password   String
+
+  // Authentication Foundation
+  userMetadata UserMetaData? @relation
+  is2FAEnabled Boolean        @default(false)
+  TwoFA        TwoFA[]
+  LoginHistory LoginHistory[]
+  @@map("users")
+}
+
+model TwoFA {
+  id        Int      @id @default(autoincrement())
+  secret    String
+  method    String   @default("email")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+
+  @@map("two_fa")
+}
+
+model LoginHistory {
+  id             Int      @id @default(autoincrement())
+  user           User     @relation(fields: [userId], references: [id])
+  userId         Int
+  userMetadataId Int
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
 }

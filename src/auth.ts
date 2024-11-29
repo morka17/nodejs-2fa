@@ -4,6 +4,7 @@ import { err, Err, Ok, ok, Result } from "./helper-func/result";
 import { PrismaClient, Prisma, User } from "@prisma/client"
 import { hashPasswordWithSalt, verifyPassword } from "./security/password";
 import { injector } from "./locator/injector";
+import { emailWorkerQueue } from "./configs/redis.config";
 
 
 
@@ -86,7 +87,7 @@ interface FlareAuth {
      * @param provider - The selected provider for authentication.
      * @returns A Result containing the authenticated user or an Exception.
      */
-    SignWithAuthProvider<T>({ provider }: { provider: Provider }): Result<T, Exception>;
+    SignWithAuthProvider<T>({ provider }: { provider: Provider }): Promise<Result<T, Exception>>;
 
     // ---------------------------
     // Email Verification
@@ -97,7 +98,7 @@ interface FlareAuth {
      * @param uid - The user ID for whom to send the verification link.
      * @returns A Result indicating success or an Exception.
      */
-    SendEmailVerificationLink(uid: string): Promise<Result<void, Exception>>;
+    SendEmailVerificationLink<T extends EmailTask>(email: string): Promise<Result<T, Exception>>;
 
     /**
      * Verify the email verification link.
@@ -115,14 +116,14 @@ interface FlareAuth {
      * @param uid - The user ID for whom to send the reset link.
      * @returns A Result indicating success or an Exception.
      */
-    SendPasswordResetLink(uid: string): Result<void, Exception>;
+    SendPasswordResetLink<T extends EmailTask>(email: string): Promise<Result<T, Exception>>;
 
     /**
      * Verify the password reset token and allow the user to set a new password.
      * @param token - The reset token from the email.
      * @returns A Result containing the updated user or an Exception.
      */
-    VerifyPasswordResetLink<T>(token: string): Result<T, Exception>;
+    VerifyPasswordResetLink<T>(token: string): Promise<Result<T, Exception>>;
 
     /**
      * Set a new password after password reset verification.
@@ -130,7 +131,7 @@ interface FlareAuth {
      * @param setNewPassword - The new password to be set.
      * @returns A Result containing the updated user or an Exception.
      */
-    setNewPassword<T>({ resetToken, setNewPassword }: { resetToken: string, setNewPassword: string }): Result<T, Exception>;
+    setNewPassword<T>({ resetToken, newPassword }: { resetToken: string, newPassword: string }): Promise<Result<T, Exception>>;
 
     /**
      * Change an existing user's password.
@@ -139,7 +140,7 @@ interface FlareAuth {
      * @param newPassword - The new password to be set.
      * @returns A Result containing the updated user or an Exception.
      */
-    changePassword<T>({ uid, oldPassword, newPassword }: { uid: string, oldPassword: string, newPassword: string }): Result<T, Exception>;
+    changePassword<T>({ uid, oldPassword, newPassword }: { uid: number, oldPassword: string, newPassword: string }): Promise<Result<T, Exception>>;
 }
 
 
@@ -158,7 +159,7 @@ class Auth implements FlareAuth {
 
     }
 
-    async CreateNewUser<T extends Prisma.UserCreateInput, R>({ user }: { user: Prisma.UserCreateInput; }): Promise<Result<R, Exception>> {
+    async CreateNewUser<R>({ user }: { user: Prisma.UserCreateInput; }): Promise<Result<R, Exception>> {
 
         try {
             const existingUser = await this.findUser(user.email);
@@ -219,6 +220,24 @@ class Auth implements FlareAuth {
             // Password verification 
             if (!verifyPassword(password, user.password, user.phone ?? "")) return new Err(new UnauthorizedException("Invalid email or password"))
 
+            // Check for new device signin to ensure 2FA 
+            const isNewDeviceSignin = await this.isNewDeviceSignin({ ip: , userAgent: , uid: , });
+            if (isNewDeviceSignin.isErr()) return new Err(new InternalException(isNewDeviceSignin.unwrapErr().message))
+
+            if (isNewDeviceSignin.unwrap()) {
+                // forward to 2FA security system 
+                const options: TwoFactorAuthOptions = {
+                    userId: +user.id
+                    method: user.is2FAEnabled
+                    secret?: string;
+                    email?: user.email;
+                    phoneNumber?: string;
+                }
+                return this.MultiAuthSignIn<T>();
+            }
+
+
+
             // Payload 
             const { password: pwd, ...payload } = user
 
@@ -249,48 +268,216 @@ class Auth implements FlareAuth {
     }
 
 
-    SignWithAuthProvider<T>({ provider }: { provider: Provider; }): Result<T, Exception> {
+    SignWithAuthProvider<T>({ provider }: { provider: Provider; }): Promise<Result<T, Exception>> {
         throw new Error("Method not implemented.");
     }
 
-    async SendEmailVerificationLink(uid: string): Promise<Result<void, Exception>> {
-        try { 
+    async SendEmailVerificationLink<T extends EmailTask>(email: string): Promise<Result<T, Exception>> {
+        try {
 
-            
+            // Ver Token Payload 
+            const payload = {
+                email
+            }
+
+            const result = await this.findUser(email)
+            if (result.isNone()) return new Err(new NotFoundException("User not found"))
+
+            // Generate Verification Token 
+            const token = injector.jwtService.generateAccessToken(payload)
+
+            // content  
+            const task: EmailTask = {
+                to: email,
+                subject: "Email Verification",
+                token: token,
+                type: EmailType.EmailVerification
+            }
+
+            const _result = await emailWorkerQueue.add(task)
+            if (await _result.isFailed()) return new Err(new InternalException("Failed to send verification email"))
+
+            return new Ok({ id: _result.id, ..._result.data } as any as T);
 
         } catch (error: any) {
             return new Err(new InternalException("Failed to send verification link: " + error.message))
         }
     }
-    VerifyEmailVerificationLink(token: string): Result<void, Exception> {
-        throw new Error("Method not implemented.");
+
+    async VerifyEmailVerificationLink(token: string): Promise<Result<void, Exception>> {
+
+        try {
+
+            const result = injector.jwtService.verifyToken<{ email: string }>(token)
+            if (result.isErr()) return new Err(result.unwrapErr())
+
+            // update user to verified 
+            await this.prisma.user.update({
+                where: {
+                    email: result.unwrap().email
+                },
+                data: {
+                    isVerified: true
+                }
+            })
+
+            return new Ok(undefined)
+
+
+        } catch (error: any) {
+
+            return new Err(new InternalException("Failed to verify email " + error.message))
+        }
     }
-    SendPasswordResetLink(uid: string): Result<void, Exception> {
-        throw new Error("Method not implemented.");
+
+    async SendPasswordResetLink<T extends EmailTask>(email: string): Promise<Result<T, Exception>> {
+        try {
+
+            // Ver Token Payload 
+            const payload = {
+                email
+            }
+
+            // Generate Verification Token 
+            const token = injector.jwtService.generateAccessToken(payload)
+
+            // content  
+            const task: EmailTask = {
+                to: email,
+                subject: "Password Reset Verification",
+                token: token,
+                type: EmailType.PasswordReset
+            }
+
+            const _result = await emailWorkerQueue.add(task)
+
+            if (await _result.isFailed()) return new Err(new InternalException(`Failed to send link: ${_result.failedReason}`))
+
+            return new Ok({ id: _result.id, ..._result.data } as unknown as T);
+
+        } catch (error: any) {
+            return new Err(new InternalException("Failed to reset password link: " + error.message))
+        }
+
     }
-    VerifyPasswordResetLink<T>(token: string): Result<T, Exception> {
-        throw new Error("Method not implemented.");
+    async VerifyPasswordResetLink<T>(token: string): Promise<Result<T, Exception>> {
+        try {
+
+            const result = injector.jwtService.verifyToken<{ email: string }>(token)
+            if (result.isErr()) return new Err(result.unwrapErr())
+
+
+            return new Ok("Successful" as T)
+
+        } catch (error: any) {
+            return new Err(new InternalException("Failed to verify password reset token"))
+        }
+
     }
-    setNewPassword<T>({ resetToken, setNewPassword }: { resetToken: string; setNewPassword: string; }): Result<T, Exception> {
-        throw new Error("Method not implemented.");
+    async setNewPassword<T>({ resetToken, newPassword }: { resetToken: string; newPassword: string; }): Promise<Result<T, Exception>> {
+
+
+        try {
+            const result = injector.jwtService.verifyToken<{ email: string }>(resetToken);
+            if (result.isErr()) return new Err(new UnauthorizedException("Invalid reset token"))
+
+            const uResult = await this.findUser(result.unwrap().email)
+
+            if (uResult.isNone()) return new Err(new NotFoundException("User Not Found"));
+
+            const user = uResult.unwrap()
+
+            const hashedPassword = hashPasswordWithSalt(newPassword, user.phone ?? "");
+
+            const _u = await this.prisma.user.update({
+                where: {
+                    email: user.email
+                },
+                data: {
+                    password: hashedPassword
+                }
+            })
+
+            return new Ok(_u as T)
+
+
+        } catch (error: any) {
+            return new Err(new InternalException("Failed to set new Password"))
+        }
     }
-    changePassword<T>({ uid, oldPassword, newPassword }: { uid: string; oldPassword: string; newPassword: string; }): Result<T, Exception> {
-        throw new Error("Method not implemented.");
+    async changePassword<T>({ uid, oldPassword, newPassword }: { uid: number; oldPassword: string; newPassword: string; }): Promise<Result<T, Exception>> {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: {
+                    id: uid
+                }
+            })
+
+            if (!user) return new Err(new UnauthorizedException("Invalid user"))
+
+            if (!verifyPassword(oldPassword, user.password, user.phone ?? "")) return new Err(new UnauthorizedException("Incorrect password"))
+
+            const hashedPassword = hashPasswordWithSalt(newPassword, user.phone ?? "")
+            const _u = await this.prisma.user.update({
+                where: {
+                    id: uid,
+                },
+                data: {
+                    password: hashedPassword
+                }
+            })
+
+            return new Ok(_u as T)
+
+        } catch (error: any) {
+            return new Err(new InternalException("Failed to reset password"))
+        }
     }
 
 
     async findUser<U extends User>(email: string): Promise<Option<U>> {
 
-        const user = await this.prisma.user.findUnique({
-            where: {
-                email: email
-            }
+        try {
 
-        })
+            const user = await this.prisma.user.findUnique({
+                where: {
+                    email: email
+                }
 
-        if (!user) return new None;
+            })
 
-        return new Some(user as U)
+            if (!user) return new None;
 
+            return new Some(user as U)
+        } catch (error: any) {
+            return new None;
+        }
+
+    }
+
+    async isVerified(email: string): Promise<Result<Boolean, Error>> {
+        const result = await this.findUser(email)
+        if (result.isNone()) return new Err(new UnauthorizedException("User Not Found"))
+
+        const { isVerified } = result.unwrap()
+        return new Ok(isVerified)
+    }
+
+    async isNewDeviceSignin({ ip, userAgent, uid }: { ip: string, userAgent: string, uid: number }): Promise<Result<Boolean, Exception>> {
+
+        try {
+            const metadata = await this.prisma.userMetaData.findUnique({
+                where: {
+                    id: uid
+                }
+            })
+
+            if (!metadata) return new Ok(false)
+            if (metadata.lastUserAgent !== userAgent.trim()) return new Ok(false)
+
+            return new Ok(true);
+        } catch (error: any) {
+            return new Err(new InternalException("Failed to retrieve signin info."))
+        }
     }
 }
