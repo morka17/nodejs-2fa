@@ -1,190 +1,189 @@
-# FlareAuth - Node.js Authentication Library
+# FlareAuth - Two-Factor Authentication Library
 
-FlareAuth is a powerful and flexible authentication library for Node.js applications. It provides comprehensive solutions for user signup, login, multi-factor authentication (2FA), and integration with third-party authentication providers. FlareAuth is designed to help developers implement secure and scalable authentication mechanisms easily.
-
+FlareAuth is a robust TypeScript-based authentication library that provides comprehensive authentication solutions including email/password, phone/password, and two-factor authentication (2FA) support. It's built with security, modularity, and ease of use in mind.
 
 ## Features
 
-- __User Signup:__ Register users using email/password or phone/password.
+- **Multiple Authentication Methods**
+  - Email/Password authentication
+  - Phone/Password authentication
+  - Third-party provider authentication
+  - Two-Factor Authentication (2FA)
 
-- __User Login:__ Authenticate users with email/password or phone/password.
+- **Two-Factor Authentication Options**
+  - Email-based 2FA
+  - SMS-based 2FA
+  - Authenticator app support (TOTP)
 
-- __Two-Factor Authentication (2FA):__ Secure new device sign-ins.
+- **Security Features**
+  - Password hashing with salt
+  - JWT token-based authentication
+  - Email verification
+  - Password reset functionality
+  - Secure password change mechanism
 
-- __Provider Authentication:__ Integration with external providers like Google or Firebase.
-
-- __Email Verification:__ Send and verify email-based confirmation links.
-
-- __Password Reset:__ Send password reset links and update passwords securely.
-
-- __Password Management:__ Change user passwords with robust checks.
-
-- __Extensibility:__ Customizable for various use cases.
-
+- **Database Integration**
+  - Built with Prisma ORM
+  - SQLite support (configurable for other databases)
 
 ## Installation
 
-Install the library via npm:
-```sh   
+```bash
 npm install flare_auth
 ```
 
+## Prerequisites
+
+- Node.js (v14 or higher)
+- Redis (for email queue management)
+- SQLite (or your preferred database)
+
+## Environment Variables
+
+Create a `.env` file in your project root with the following variables:
+
+```env
+DATABASE_URL="file:./dev.db"
+REDIS_URL="redis://localhost:6379"
+JWT_SECRET="your-secret-key"
+SMTP_HOST="your-smtp-host"
+SMTP_PORT=587
+SMTP_USER="your-smtp-username"
+SMTP_PASS="your-smtp-password"
+```
 
 ## Usage
 
-### Initialization
+### Basic Authentication
 
-Import and use FlareAuth in your Node.js application:
+```typescript
+import { Auth } from 'flare_auth';
 
-```js
-import FlareAuth from 'flareauth';
+const auth = new Auth();
 
-const auth = new FlareAuth();
+// Sign up with email and password
+const signupResult = await auth.SignupWithEmailAndPassword({
+  email: 'user@example.com',
+  password: 'securepassword'
+});
+
+// Sign in with email and password
+const signinResult = await auth.SignInWithEmailAndPassword({
+  email: 'user@example.com',
+  password: 'securepassword'
+});
 ```
 
+### Two-Factor Authentication
 
-## API Methods
+```typescript
+// Initialize 2FA
+const twoFactorAuth = new TwoFactorAuthService({
+  userId: 'user123',
+  method: TwoFactorMethod.EMAIL,
+  email: 'user@example.com'
+});
 
-### User Management
+// Send verification code
+await twoFactorAuth.sendEmailCode();
 
-Create a New User
-```js 
-auth.CreateNewUser({ user: { name: 'John Doe', email: 'john@example.com' } });
+// Verify code
+const isValid = twoFactorAuth.verifyCode('123456');
 ```
 
-## Signup Methods
+### Password Management
 
-Signup with Email and Password
+```typescript
+// Send password reset link
+await auth.SendPasswordResetLink('user@example.com');
 
-```js  
-auth.SignupWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
-```
-Signup with Phone and Password
+// Verify reset link and set new password
+await auth.setNewPassword({
+  resetToken: 'reset-token',
+  newPassword: 'new-secure-password'
+});
 
-```js 
-auth.SignupWithPhoneNumberAndPassword({ phone: '+1234567890', password: 'securepassword123' });
-```
-
-## Login Methods
-
-Login with Email and Password
-```js 
-auth.SignInWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
-```
-Login with Phone and Password
-```js 
-auth.SignInWithPhoneNumberAndPassword({ phone: '+1234567890', password: 'securepassword123' });
+// Change password
+await auth.changePassword({
+  uid: 123,
+  oldPassword: 'current-password',
+  newPassword: 'new-password'
+});
 ```
 
+## API Reference
 
-## Two-Factor Authentication (2FA)
+### FlareAuth Interface
 
-Start 2FA Authentication
-```js 
-const options = { method: 'sms', phone: '+1234567890' }; // Example
-auth.MultiAuthSignIn(options);
-```
-Verify 2FA Token
+#### User Management
+- `CreateNewUser<T>({ user }: { user: Prisma.UserCreateInput })`: Create a new user
+- `SignupWithEmailAndPassword<T>({ email, password })`: Register with email/password
+- `SignupWithPhoneNumberAndPassword<T>({ phone, password })`: Register with phone/password
 
-```js 
-auth.MultiAuthSignInVerification('token-from-sms-or-app');
-```
+#### Authentication
+- `SignInWithEmailAndPassword<T>({ email, password })`: Sign in with email/password
+- `SignInWithPhoneNumberAndPassword<T>({ phone, password })`: Sign in with phone/password
+- `SignWithAuthProvider<T>({ provider })`: Sign in with third-party provider
 
-## Provider Authentication
+#### Two-Factor Authentication
+- `MultiAuthSignIn<T>(option: TwoFactorAuthOptions)`: Start 2FA process
+- `MultiAuthSignInVerification<T>(token: string)`: Verify 2FA token
 
-Sign in with External Provider
-```js  
-auth.SignWithAuthProvider({ provider: 'google' });
-```
+#### Email Verification
+- `SendEmailVerificationLink<T>(email: string)`: Send verification email
+- `VerifyEmailVerificationLink(token: string)`: Verify email link
 
-## Email Verification
+#### Password Management
+- `SendPasswordResetLink<T>(email: string)`: Send password reset email
+- `VerifyPasswordResetLink<T>(token: string)`: Verify reset link
+- `setNewPassword<T>({ resetToken, newPassword })`: Set new password after reset
+- `changePassword<T>({ uid, oldPassword, newPassword })`: Change existing password
 
-Send Email Verification Link
-```js  
-auth.SendEmailVerificationLink('user-id');
-```
-Verify Email Link
-```js  
-auth.VerifyEmailVerificationLink('token-from-email');
-```
+### TwoFactorAuthService
 
-## Password Reset
+- `generateSecret()`: Generate TOTP secret for authenticator apps
+- `sendEmailCode()`: Send email verification code
+- `sendSmsCode()`: Send SMS verification code
+- `verifyCode(inputCode: string)`: Verify input code
 
-Send Password Reset Link
-```js  
-auth.SendPasswordResetLink('user-id');
-```
-Verify Password Reset Token
-```js  
-auth.VerifyPasswordResetLink('reset-token');
-```
-Set New Password
-```js  
-auth.setNewPassword({ resetToken: 'reset-token', setNewPassword: 'newPassword123' });
-```
-Change Password
-```js 
-auth.changePassword({ uid: 'user-id', oldPassword: 'oldPassword123', newPassword: 'newPassword123' });
+## Error Handling
+
+The library uses a Result type for error handling:
+
+```typescript
+type Result<T, E> = Ok<T> | Err<E>;
 ```
 
+All methods return a Promise<Result<T, Exception>> where:
+- T is the success type
+- Exception contains error details
 
-# TypeScript Support
+## Testing
 
-FlareAuth is fully typed for TypeScript, providing robust type checking and IDE support.
+```bash
+# Run tests
+npm test
 
-
-# Exceptions
-
-All methods return a Result object containing either the expected data or an `Exception`. Handle exceptions gracefully in your application:
-
-```js 
-const result = auth.SignInWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
-
-if (result.isSuccess) {
-    console.log('User signed in:', result.value);
-} else {
-    console.error('Error signing in:', result.error);
-}
+# Run tests in watch mode
+npm run test:watch
 ```
 
+## Security Considerations
 
-## Examples
-
-### Basic Authentication Flow
-```js 
-import FlareAuth from 'flareauth';
-
-const auth = new FlareAuth();
-
-// Signup
-const signupResult = auth.SignupWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
-if (signupResult.isSuccess) {
-    console.log('User signed up:', signupResult.value);
-} else {
-    console.error('Signup error:', signupResult.error);
-}
-
-// Login
-const loginResult = auth.SignInWithEmailAndPassword({ email: 'john@example.com', password: 'securepassword123' });
-if (loginResult.isSuccess) {
-    console.log('User signed in:', loginResult.value);
-} else {
-    console.error('Login error:', loginResult.error);
-}
-
-```
-
+1. All passwords are hashed with salt before storage
+2. JWT tokens are used for session management
+3. Email verification is required for new accounts
+4. Password reset tokens are time-limited
+5. 2FA provides an additional layer of security
 
 ## Contributing
 
-Contributions are welcome! Feel free to open issues or submit pull requests to improve the library.
-
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
 
 ## License
 
-This library is licensed under the MIT License. See the LICENSE file for details.
-
-
-## Contact
-
-For support or inquiries, please email joshuamorka4@gmail.com.
+This project is licensed under the ISC License - see the LICENSE file for details.
